@@ -1743,8 +1743,7 @@
                 highlights.forEach(hl => { const parent = hl.parentNode; parent.replaceChild(document.createTextNode(hl.textContent), hl); parent.normalize(); });
             },
             escapeRegex(s) { return s.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'); }
-        },
- export: {
+        }, export: {
             async exportAs(format) {
                 return (format === 'csv') ? this.toCsv() : this.toJson();
             },
@@ -1771,25 +1770,26 @@
                     const finalData = JSON.parse(JSON.stringify(originalFile.data));
 
                     // --- Apply required changes to the JSON structure ---
-                    // 1. Set language, dialect, and country metadata
+                    // 1. Set language, dialect, country, and empty title
                     finalData.metadata = finalData.metadata || {};
+                    finalData.metadata.title = "";
                     finalData.metadata.language = 'ar';
                     finalData.metadata.dialect = ['modern_standard'];
                     finalData.metadata.country = 'eg';
 
-                    // 2. Determine description based on statement and stem
+                    // 2. Determine description based on translated statement and stem
                     let description = '';
-                    const statementText = finalData.statement;
-                    const stemText = finalData.parts?.[0]?.stem;
+                    const translatedStatement = finalData.statement;
+                    const translatedStem = finalData.parts?.[0]?.stem;
 
-                    // Remove HTML tags for the description field
+                    // A helper function to strip HTML tags
                     const stripHtml = (html) => {
                         const doc = new DOMParser().parseFromString(html, 'text/html');
                         return doc.body.textContent || "";
                     };
 
-                    const cleanStatement = statementText ? stripHtml(statementText) : '';
-                    const cleanStem = stemText ? stripHtml(stemText) : '';
+                    const cleanStatement = translatedStatement ? stripHtml(translatedStatement) : '';
+                    const cleanStem = translatedStem ? stripHtml(translatedStem) : '';
 
                     if (cleanStatement && cleanStem) {
                         description = cleanStatement + ' ' + cleanStem;
@@ -1852,7 +1852,7 @@
                     TranslatorApp.ui.showAlert('تم إنشاء ملف ZIP بنجاح!', 'success');
                 } catch (e) {
                     console.error(e);
-                    TranslatorApp.ui.showAlert('فشل إنشاء ملف ZIP.', 'error');}
+                    TranslatorApp.ui.showAlert('فشل إنشاء ملف ZIP.', 'error')
             },
             async toCsv() {
                 let csv = '\uFEFFFileName,PartIndex,Type,OriginalText,TranslatedText\r\n';
