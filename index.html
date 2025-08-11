@@ -1743,8 +1743,7 @@
                 highlights.forEach(hl => { const parent = hl.parentNode; parent.replaceChild(document.createTextNode(hl.textContent), hl); parent.normalize(); });
             },
             escapeRegex(s) { return s.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'); }
-        },
-export: {
+        },export: {
             async exportAs(format) {
                 return (format === 'csv') ? this.toCsv() : this.toJson();
             },
@@ -1770,15 +1769,52 @@ export: {
                     const originalFile = TranslatorApp.state.originalJsonData.find(f => f.name === file.name);
                     const finalData = JSON.parse(JSON.stringify(originalFile.data));
 
-                    // A helper function to change the direction attribute
-                    const enforceRtlDirection = (html) => {
-                        if (typeof html !== 'string' || !html.includes('dir="ltr"')) {
+                    // A helper function to change the direction attribute and handle other HTML adjustments
+                    const processHtmlContent = (html) => {
+                        if (typeof html !== 'string') {
                             return html;
                         }
-                        return html.replace(/dir="ltr"/g, 'dir="rtl"');
+                        // Replace dir="ltr" with dir="rtl"
+                        let processed = html.replace(/dir="ltr"/g, 'dir="rtl"');
+                        // Ensure all <p> tags have the Lexical class and RTL direction
+                        // This handles cases where the class or dir attribute might be missing
+                        processed = processed.replace(/<p(.*?)>/g, (match, p1) => {
+                            if (!p1.includes('LexicalTheme__paragraph')) {
+                                p1 = ` class="LexicalTheme__paragraph"${p1}`;
+                            }
+                            if (!p1.includes('dir="rtl"')) {
+                                p1 = ` dir="rtl"${p1}`;
+                            }
+                            return `<p${p1}>`;
+                        });
+                        return processed;
+                    };
+                    
+                    // --- Update the actual content with the translated text and enforce RTL direction ---
+                    const updateField = (original, translated) => {
+                        const updatedText = (translated !== undefined ? translated : original);
+                        return processHtmlContent(updatedText);
                     };
 
-                    // --- Apply required changes to the JSON structure ---
+                    finalData.statement = updateField(originalFile.data.statement, file.data.statement);
+                    if (finalData.parts) {
+                        finalData.parts.forEach((part, partIndex) => {
+                            const translatedPart = file.data.parts[partIndex];
+                            if (translatedPart) {
+                                part.stem = updateField(part.stem, translatedPart.stem);
+                                part.answer = updateField(part.answer, translatedPart.answer);
+                                if (part.choices) {
+                                    part.choices.forEach((choice, choiceIndex) => {
+                                        if (translatedPart.choices && translatedPart.choices[choiceIndex]) {
+                                            choice.html_content = updateField(choice.html_content, translatedPart.choices[choiceIndex].html_content);
+                                        }
+                                    });
+                                }
+                            }
+                        });
+                    }
+
+                    // --- Apply required changes to the metadata structure ---
                     finalData.metadata = finalData.metadata || {};
                     finalData.metadata.title = "";
                     finalData.metadata.language = 'ar';
@@ -1786,16 +1822,16 @@ export: {
                     finalData.metadata.country = 'eg';
                     finalData.metadata.source_id = null;
 
-                    // Determine description based on translated statement and stem
-                    let description = '';
-                    const translatedStatement = finalData.statement;
-                    const translatedStem = finalData.parts?.[0]?.stem;
-
                     // A helper function to strip HTML tags
                     const stripHtml = (html) => {
                         const doc = new DOMParser().parseFromString(html, 'text/html');
                         return doc.body.textContent || "";
                     };
+
+                    // Determine description based on *translated* statement and stem
+                    let description = '';
+                    const translatedStatement = finalData.statement;
+                    const translatedStem = finalData.parts?.[0]?.stem;
 
                     const cleanStatement = translatedStatement ? stripHtml(translatedStatement) : '';
                     const cleanStem = translatedStem ? stripHtml(translatedStem) : '';
@@ -1820,30 +1856,6 @@ export: {
                     } else {
                          // If not using the mapped_ids list, make sure mapped_id is the same as id
                          finalData.metadata.mapped_id = finalData.metadata.id;
-                    }
-
-                    // Update the actual content with the translated text and enforce RTL direction
-                    const updateField = (original, translated) => {
-                        const updatedText = (translated !== undefined ? translated : original);
-                        return enforceRtlDirection(updatedText);
-                    };
-
-                    finalData.statement = updateField(originalFile.data.statement, file.data.statement);
-                    if (finalData.parts) {
-                        finalData.parts.forEach((part, partIndex) => {
-                            const translatedPart = file.data.parts[partIndex];
-                            if (translatedPart) {
-                                part.stem = updateField(part.stem, translatedPart.stem);
-                                part.answer = updateField(part.answer, translatedPart.answer);
-                                if (part.choices) {
-                                    part.choices.forEach((choice, choiceIndex) => {
-                                        if (translatedPart.choices && translatedPart.choices[choiceIndex]) {
-                                            choice.html_content = updateField(choice.html_content, translatedPart.choices[choiceIndex].html_content);
-                                        }
-                                    });
-                                }
-                            }
-                        });
                     }
                     
                     zip.file(fileNameToUse, JSON.stringify(finalData, null, 2));
