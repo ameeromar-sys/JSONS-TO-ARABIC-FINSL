@@ -1744,26 +1744,90 @@
             },
             escapeRegex(s) { return s.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'); }
         },
-
-        export: {
-            async exportAs(format) { return (format === 'csv') ? this.toCsv() : this.toJson(); },
+export: {
+            async exportAs(format) {
+                return (format === 'csv') ? this.toCsv() : this.toJson();
+            },
             async toJson() {
                 const useMappedIds = TranslatorApp.dom.useMappedIdsCheckbox.checked;
-                let mappedIds = []; let idCounter = 0;
+                let mappedIds = [];
+                let idCounter = 0;
+
                 if (useMappedIds) {
-                    try { mappedIds = JSON.parse(TranslatorApp.dom.mappedIdsInput.value); if (!Array.isArray(mappedIds)) throw new Error('not array'); }
-                    catch { return TranslatorApp.ui.showAlert('قائمة المعرفات (mapped_id) غير صالحة.', 'error'); }
+                    try {
+                        mappedIds = JSON.parse(TranslatorApp.dom.mappedIdsInput.value);
+                        if (!Array.isArray(mappedIds)) {
+                            throw new Error('not array');
+                        }
+                    } catch {
+                        return TranslatorApp.ui.showAlert('قائمة المعرفات (mapped_id) غير صالحة. يرجى التأكد من أنها مصفوفة JSON صحيحة.', 'error');
+                    }
                 }
+
                 const zip = new JSZip();
+
                 TranslatorApp.state.translatedJsonData.forEach(file => {
                     const originalFile = TranslatorApp.state.originalJsonData.find(f => f.name === file.name);
                     const finalData = JSON.parse(JSON.stringify(originalFile.data));
-                    if (useMappedIds && idCounter < mappedIds.length) {
-                        const newId = parseInt(mappedIds[idCounter], 10);
-                        if (!isNaN(newId)) finalData.mapped_id = newId;
-                        idCounter++;
+
+                    // A helper function to change the direction attribute
+                    const enforceRtlDirection = (html) => {
+                        if (typeof html !== 'string' || !html.includes('dir="ltr"')) {
+                            return html;
+                        }
+                        return html.replace(/dir="ltr"/g, 'dir="rtl"');
+                    };
+
+                    // --- Apply required changes to the JSON structure ---
+                    finalData.metadata = finalData.metadata || {};
+                    finalData.metadata.title = "";
+                    finalData.metadata.language = 'ar';
+                    finalData.metadata.dialect = ['modern_standard'];
+                    finalData.metadata.country = 'eg';
+                    finalData.metadata.source_id = null;
+
+                    // Determine description based on translated statement and stem
+                    let description = '';
+                    const translatedStatement = finalData.statement;
+                    const translatedStem = finalData.parts?.[0]?.stem;
+
+                    // A helper function to strip HTML tags
+                    const stripHtml = (html) => {
+                        const doc = new DOMParser().parseFromString(html, 'text/html');
+                        return doc.body.textContent || "";
+                    };
+
+                    const cleanStatement = translatedStatement ? stripHtml(translatedStatement) : '';
+                    const cleanStem = translatedStem ? stripHtml(translatedStem) : '';
+
+                    if (cleanStatement && cleanStem) {
+                        description = cleanStatement + ' ' + cleanStem;
+                    } else if (cleanStatement) {
+                        description = cleanStatement;
+                    } else if (cleanStem) {
+                        description = cleanStem;
                     }
-                    const updateField = (o, t) => (t !== undefined ? t : o);
+                    
+                    finalData.metadata.description = description;
+
+                    // Update mapped_id and filename
+                    let fileNameToUse = file.name;
+                    if (useMappedIds && idCounter < mappedIds.length) {
+                        const newMappedId = mappedIds[idCounter];
+                        finalData.metadata.mapped_id = newMappedId;
+                        fileNameToUse = `${newMappedId}.json`;
+                        idCounter++;
+                    } else {
+                         // If not using the mapped_ids list, make sure mapped_id is the same as id
+                         finalData.metadata.mapped_id = finalData.metadata.id;
+                    }
+
+                    // Update the actual content with the translated text and enforce RTL direction
+                    const updateField = (original, translated) => {
+                        const updatedText = (translated !== undefined ? translated : original);
+                        return enforceRtlDirection(updatedText);
+                    };
+
                     finalData.statement = updateField(originalFile.data.statement, file.data.statement);
                     if (finalData.parts) {
                         finalData.parts.forEach((part, partIndex) => {
@@ -1781,19 +1845,26 @@
                             }
                         });
                     }
-                    zip.file(file.name, JSON.stringify(finalData, null, 2));
+                    
+                    zip.file(fileNameToUse, JSON.stringify(finalData, null, 2));
                 });
+
                 if (useMappedIds && idCounter < TranslatorApp.state.translatedJsonData.length) {
                     TranslatorApp.ui.showAlert(`تحذير: عدد المعرفات (${idCounter}) أقل من عدد الملفات (${TranslatorApp.state.translatedJsonData.length}).`, 'error');
                 }
+
                 try {
                     const content = await zip.generateAsync({ type: "blob" });
                     const link = document.createElement("a");
                     link.href = URL.createObjectURL(content);
-                    link.download = `translated_questions_${new Date().toISOString().replace(/[:.]/g,'-')}.zip`;
-                    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+                    link.download = `translated_questions_${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
                     TranslatorApp.ui.showAlert('تم إنشاء ملف ZIP بنجاح!', 'success');
-                } catch (e) { console.error(e); TranslatorApp.ui.showAlert('فشل إنشاء ملف ZIP.', 'error'); }
+                } catch (e) {
+                    console.error(e);
+                    TranslatorApp.ui.showAlert('فشل إنشاء ملف ZIP.', 'error');}
             },
             async toCsv() {
                 let csv = '\uFEFFFileName,PartIndex,Type,OriginalText,TranslatedText\r\n';
